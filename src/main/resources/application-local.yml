@@ -1,0 +1,28 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:error_free_text;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+yandex:
+  speller:
+    url: https://speller.yandex.net/services/spellservice.json/checkTexts
+    max-chunk-size: 10000
+
+task:
+  scheduler:
+    interval-ms: 5000
+
+logging:
+  level:
+    com.errorfreetext: INFO
+    org.springframework.web: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
