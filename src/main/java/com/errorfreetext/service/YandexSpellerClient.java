@@ -9,10 +9,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,7 +28,7 @@ public class YandexSpellerClient {
     private final String apiUrl;
 
     public YandexSpellerClient(RestTemplate restTemplate,
-                               @Value("${yandex.speller.url}") String apiUrl) {
+            @Value("${yandex.speller.url}") String apiUrl) {
         this.restTemplate = restTemplate;
         this.apiUrl = apiUrl;
     }
@@ -42,15 +42,19 @@ public class YandexSpellerClient {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
-            StringBuilder body = new StringBuilder();
-            body.append("text=").append(java.net.URLEncoder.encode(text, java.nio.charset.StandardCharsets.UTF_8));
-            body.append("&lang=").append(language.name().toLowerCase());
-            body.append("&options=").append(options);
+            String encodedText = java.net.URLEncoder.encode(text, java.nio.charset.StandardCharsets.UTF_8);
+            String body = "text=" + encodedText + "&lang=" + language.name().toLowerCase() + "&options=" + options;
 
-            HttpEntity<String> request = new HttpEntity<>(body.toString(), headers);
+            log.info("Calling Yandex Speller API: url={}, lang={}, options={}, textLength={}",
+                    apiUrl, language, options, text.length());
+            log.debug("Request body: {}", body);
 
-            @SuppressWarnings("unchecked")
+            HttpEntity<String> request = new HttpEntity<>(body, headers);
+
             ResponseEntity<List> response = restTemplate.postForEntity(apiUrl, request, List.class);
+
+            log.info("Yandex Speller API responded with status: {}", response.getStatusCode());
+            log.debug("Response body: {}", response.getBody());
 
             List<Map<String, Object>> results = response.getBody();
             List<SpellerCorrection> corrections = new ArrayList<>();
@@ -69,12 +73,15 @@ public class YandexSpellerClient {
                 }
             }
 
-            log.debug("Yandex Speller returned {} corrections for chunk of length {}",
+            log.info("Yandex Speller returned {} corrections for chunk of length {}",
                     corrections.size(), text.length());
             return corrections;
+        } catch (RestClientException e) {
+            log.error("Error calling Yandex Speller API: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to call Yandex Speller API: " + e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Error calling Yandex Speller API", e);
-            throw new RuntimeException("Failed to call Yandex Speller API", e);
+            log.error("Unexpected error calling Yandex Speller API: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to call Yandex Speller API: " + e.getMessage(), e);
         }
     }
 
