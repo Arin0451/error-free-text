@@ -21,6 +21,9 @@
 ```bash
 docker compose up -d --build
 ```
+```bash
+./gradlew bootRun --args='--spring.profiles.active=local'
+```
 
 После запуска приложение доступно на `http://localhost:8080` с PostgreSQL.
 
