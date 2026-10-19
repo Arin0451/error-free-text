@@ -1,5 +1,7 @@
 package com.errorfreetext.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.errorfreetext.entity.Language;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +15,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -26,16 +29,19 @@ public class YandexSpellerClient {
 
     private final RestTemplate restTemplate;
     private final String apiUrl;
+    private final ObjectMapper objectMapper;
 
     public YandexSpellerClient(RestTemplate restTemplate,
-            @Value("${yandex.speller.url}") String apiUrl) {
+            @Value("${yandex.speller.url}") String apiUrl,
+            ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
         this.apiUrl = apiUrl;
+        this.objectMapper = objectMapper;
     }
 
     /**
-     * Checks and corrects a single text chunk via Yandex Speller API.
-     * Returns list of corrections with positions relative to the chunk.
+     * Проверяет и исправляет один фрагмент текста через API Яндекс Спеллер.
+     * Возвращает список исправлений с позициями относительно фрагмента.
      */
     public List<SpellerCorrection> checkText(String text, Language language, int options) {
         try {
@@ -45,43 +51,51 @@ public class YandexSpellerClient {
             String encodedText = java.net.URLEncoder.encode(text, java.nio.charset.StandardCharsets.UTF_8);
             String body = "text=" + encodedText + "&lang=" + language.name().toLowerCase() + "&options=" + options;
 
-            log.info("Calling Yandex Speller API: url={}, lang={}, options={}, textLength={}",
-                    apiUrl, language, options, text.length());
-            log.debug("Request body: {}", body);
-
             HttpEntity<String> request = new HttpEntity<>(body, headers);
 
-            ResponseEntity<List> response = restTemplate.postForEntity(apiUrl, request, List.class);
+            log.info("Вызов Яндекс Спеллера: url={}, lang={}, options={}, textLength={}", apiUrl, language, options, text.length());
 
-            log.info("Yandex Speller API responded with status: {}", response.getStatusCode());
-            log.debug("Response body: {}", response.getBody());
+            ResponseEntity<String> response = restTemplate.postForEntity(apiUrl, request, String.class);
 
-            List<Map<String, Object>> results = response.getBody();
-            List<SpellerCorrection> corrections = new ArrayList<>();
+            log.info("Яндекс Спеллер ответил: status={}", response.getStatusCode());
 
-            if (results != null) {
-                for (Map<String, Object> item : results) {
-                    int code = ((Number) item.get("code")).intValue();
-                    int pos = ((Number) item.get("pos")).intValue();
-                    int len = ((Number) item.get("len")).intValue();
-                    String word = (String) item.get("word");
-                    List<?> suggestions = (List<?>) item.get("s");
-                    String replacement = suggestions != null && !suggestions.isEmpty()
-                            ? String.valueOf(suggestions.get(0))
-                            : null;
-                    corrections.add(new SpellerCorrection(code, pos, len, word, replacement));
-                }
+            String responseBody = response.getBody();
+            if (responseBody == null || responseBody.isBlank()) {
+                log.info("Яндекс Спеллер вернул пустой ответ");
+                return Collections.emptyList();
             }
 
-            log.info("Yandex Speller returned {} corrections for chunk of length {}",
-                    corrections.size(), text.length());
+            List<?> rawResults = objectMapper.readValue(responseBody, new TypeReference<List<?>>() {});
+            List<SpellerCorrection> corrections = new ArrayList<>();
+
+            for (Object rawItem : rawResults) {
+                if (!(rawItem instanceof Map)) {
+                    continue;
+                }
+                Map<String, Object> item = (Map<String, Object>) rawItem;
+
+                int code = ((Number) item.getOrDefault("code", 0)).intValue();
+                int pos = ((Number) item.getOrDefault("pos", 0)).intValue();
+                int len = ((Number) item.getOrDefault("len", 0)).intValue();
+                String word = (String) item.get("word");
+
+                Object suggestionsObj = item.get("s");
+                String replacement = null;
+                if (suggestionsObj instanceof List<?> suggestions && !suggestions.isEmpty()) {
+                    replacement = String.valueOf(suggestions.get(0));
+                }
+
+                corrections.add(new SpellerCorrection(code, pos, len, word, replacement));
+            }
+
+            log.info("Яндекс Спеллер вернул {} исправлений для фрагмента длиной {}", corrections.size(), text.length());
             return corrections;
         } catch (RestClientException e) {
-            log.error("Error calling Yandex Speller API: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to call Yandex Speller API: " + e.getMessage(), e);
+            log.error("Ошибка вызова Яндекс Спеллера: {}", e.getMessage(), e);
+            throw new RuntimeException("Не удалось вызвать API Яндекс Спеллера: " + e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Unexpected error calling Yandex Speller API: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to call Yandex Speller API: " + e.getMessage(), e);
+            log.error("Неожиданная ошибка при вызове Яндекс Спеллера: {}", e.getMessage(), e);
+            throw new RuntimeException("Не удалось вызвать API Яндекс Спеллера: " + e.getMessage(), e);
         }
     }
 
